@@ -25,13 +25,14 @@ func scheduleV3Headers() map[string]string {
 
 // ScheduleV3 represents a schedule in PagerDuty's v3 API.
 type ScheduleV3 struct {
-	ID                 string       `json:"id,omitempty"`
-	Type               string       `json:"type,omitempty"`
-	Name               string       `json:"name"`
-	TimeZone           string       `json:"time_zone"`
-	Description        string       `json:"description,omitempty"`
-	EscalationPolicies []string     `json:"escalation_policies,omitempty"`
-	Rotations          []RotationV3 `json:"rotations,omitempty"`
+	ID                 string             `json:"id,omitempty"`
+	Type               string             `json:"type,omitempty"`
+	Name               string             `json:"name"`
+	TimeZone           string             `json:"time_zone"`
+	Description        string             `json:"description,omitempty"`
+	EscalationPolicies []string           `json:"escalation_policies,omitempty"`
+	Teams              []TeamReferenceV3  `json:"teams,omitempty"`
+	Rotations          []RotationV3       `json:"rotations,omitempty"`
 }
 
 // RotationV3 represents a rotation within a v3 schedule.
@@ -63,8 +64,15 @@ type EventV3 struct {
 
 // AssignmentStrategyV3 defines how on-call responsibility is assigned within an event.
 type AssignmentStrategyV3 struct {
-	Type    string     `json:"type"`
-	Members []MemberV3 `json:"members"`
+	Type            string     `json:"type"`
+	ShiftsPerMember *int       `json:"shifts_per_member,omitempty"`
+	Members         []MemberV3 `json:"members"`
+}
+
+// TeamReferenceV3 represents a team associated with a v3 schedule.
+type TeamReferenceV3 struct {
+	ID   string `json:"id"`
+	Type string `json:"type"`
 }
 
 // MemberV3 represents a member in an assignment strategy.
@@ -75,18 +83,20 @@ type MemberV3 struct {
 
 // ScheduleV3Input contains the mutable fields for creating or updating a v3 schedule.
 type ScheduleV3Input struct {
-	Name        string `json:"name"`
-	TimeZone    string `json:"time_zone"`
-	Description string `json:"description,omitempty"`
+	Name        string             `json:"name"`
+	TimeZone    string             `json:"time_zone"`
+	Description string             `json:"description,omitempty"`
+	Teams       []TeamReferenceV3  `json:"teams,omitempty"`
 }
 
 // scheduleV3Payload is the request body shape for v3 schedule create/update.
 // The rotations field must be present (even as []) per the v3 API validation.
 type scheduleV3Payload struct {
-	Name        string       `json:"name"`
-	TimeZone    string       `json:"time_zone"`
-	Description string       `json:"description,omitempty"`
-	Rotations   []RotationV3 `json:"rotations"`
+	Name        string             `json:"name"`
+	TimeZone    string             `json:"time_zone"`
+	Description string             `json:"description,omitempty"`
+	Teams       []TeamReferenceV3  `json:"teams,omitempty"`
+	Rotations   []RotationV3       `json:"rotations"`
 }
 
 type createScheduleV3Request struct {
@@ -117,9 +127,16 @@ type rotationV3Response struct {
 	Rotation RotationV3 `json:"rotation"`
 }
 
-// eventV3Response wraps the v3 API event response. The v3 API uses "schedule_event" as the key.
 type eventV3Response struct {
-	Event EventV3 `json:"schedule_event"`
+	Event EventV3 `json:"event"`
+}
+
+type createEventV3Request struct {
+	Event EventV3 `json:"event"`
+}
+
+type updateEventV3Request struct {
+	Event EventV3 `json:"event"`
 }
 
 // ListSchedulesV3 retrieves a paginated list of v3 schedules.
@@ -169,6 +186,7 @@ func (c *Client) CreateScheduleV3(ctx context.Context, s ScheduleV3Input) (*Sche
 		Name:        s.Name,
 		TimeZone:    s.TimeZone,
 		Description: s.Description,
+		Teams:       s.Teams,
 		Rotations:   []RotationV3{},
 	}}
 
@@ -195,6 +213,7 @@ func (c *Client) UpdateScheduleV3(ctx context.Context, id string, s ScheduleV3In
 		Name:        s.Name,
 		TimeZone:    s.TimeZone,
 		Description: s.Description,
+		Teams:       s.Teams,
 		Rotations:   []RotationV3{},
 	}}
 
@@ -257,6 +276,21 @@ func (c *Client) GetRotationV3(ctx context.Context, scheduleID, rotationID strin
 	return &result.Rotation, nil
 }
 
+// GetEventV3 retrieves a single event from a v3 rotation.
+func (c *Client) GetEventV3(ctx context.Context, scheduleID, rotationID, eventID string) (*EventV3, error) {
+	resp, err := c.get(ctx, "/v3/schedules/"+scheduleID+"/rotations/"+rotationID+"/events/"+eventID, scheduleV3Headers())
+	if err != nil {
+		return nil, err
+	}
+
+	var result eventV3Response
+	if err = c.decodeJSON(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result.Event, nil
+}
+
 // DeleteRotationV3 soft-deletes a rotation from a v3 schedule.
 func (c *Client) DeleteRotationV3(ctx context.Context, scheduleID, rotationID string) error {
 	// Use do() directly since delete() does not accept custom headers
@@ -270,7 +304,7 @@ func (c *Client) DeleteRotationV3(ctx context.Context, scheduleID, rotationID st
 
 // CreateEventV3 creates a new event within a v3 rotation.
 func (c *Client) CreateEventV3(ctx context.Context, scheduleID, rotationID string, e EventV3) (*EventV3, error) {
-	resp, err := c.post(ctx, "/v3/schedules/"+scheduleID+"/rotations/"+rotationID+"/events", e, scheduleV3Headers())
+	resp, err := c.post(ctx, "/v3/schedules/"+scheduleID+"/rotations/"+rotationID+"/events", createEventV3Request{Event: e}, scheduleV3Headers())
 	if err != nil {
 		return nil, err
 	}
@@ -289,7 +323,7 @@ func (c *Client) CreateEventV3(ctx context.Context, scheduleID, rotationID strin
 
 // UpdateEventV3 updates an event within a v3 rotation.
 func (c *Client) UpdateEventV3(ctx context.Context, scheduleID, rotationID, eventID string, e EventV3) (*EventV3, error) {
-	resp, err := c.put(ctx, "/v3/schedules/"+scheduleID+"/rotations/"+rotationID+"/events/"+eventID, e, scheduleV3Headers())
+	resp, err := c.put(ctx, "/v3/schedules/"+scheduleID+"/rotations/"+rotationID+"/events/"+eventID, updateEventV3Request{Event: e}, scheduleV3Headers())
 	if err != nil {
 		return nil, err
 	}
