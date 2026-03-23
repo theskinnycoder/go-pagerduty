@@ -2,9 +2,18 @@ package pagerduty
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"testing"
 )
+
+// testBodyContains decodes the request body JSON into dest and calls t.Fatal on error.
+func testBodyContains(t *testing.T, r *http.Request, dest interface{}) {
+	t.Helper()
+	if err := json.NewDecoder(r.Body).Decode(dest); err != nil {
+		t.Fatalf("failed to decode request body: %v", err)
+	}
+}
 
 var (
 	testScheduleV3ID = "SCHED01"
@@ -48,7 +57,10 @@ const (
 			"type": "schedule",
 			"name": "On-Call Schedule",
 			"time_zone": "UTC",
-			"description": "Test schedule"
+			"description": "Test schedule",
+			"teams": [
+				{"id": "TEAM01", "type": "team_reference"}
+			]
 		}
 	}`
 
@@ -62,17 +74,18 @@ const (
 	}`
 
 	mockEventV3Response = `{
-		"schedule_event": {
+		"event": {
 			"id": "EVT01",
 			"type": "schedule_event",
 			"name": "On-Call Event",
-			"start_time": {"date_time": "2026-02-21T09:00:00Z"},
-			"end_time":   {"date_time": "2026-02-21T17:00:00Z"},
+			"start_time": {"date_time": "2026-02-21T09:00:00Z", "time_zone": "America/New_York"},
+			"end_time":   {"date_time": "2026-02-21T17:00:00Z", "time_zone": "America/New_York"},
 			"effective_since": "2026-02-21T09:00:00Z",
 			"effective_until": null,
 			"recurrence": ["RRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR"],
 			"assignment_strategy": {
-				"type": "user_assignment_strategy",
+				"type": "rotating_member_assignment_strategy",
+				"shifts_per_member": 1,
 				"members": [
 					{"type": "user_member", "user_id": "USER01"}
 				]
@@ -278,6 +291,12 @@ func TestScheduleV3_Create(t *testing.T) {
 	mux.HandleFunc("/v3/schedules", func(w http.ResponseWriter, r *http.Request) {
 		testMethod(t, r, "POST")
 		testV3EarlyAccessHeader(t, r)
+		// Verify teams are forwarded in the request payload.
+		var body createScheduleV3Request
+		testBodyContains(t, r, &body)
+		if len(body.Schedule.Teams) != 1 || body.Schedule.Teams[0].ID != "TEAM01" {
+			t.Errorf("request teams = %v, want [{TEAM01 team_reference}]", body.Schedule.Teams)
+		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
 		_, _ = w.Write([]byte(mockScheduleV3MutateResponse))
@@ -288,6 +307,7 @@ func TestScheduleV3_Create(t *testing.T) {
 		Name:        "On-Call Schedule",
 		TimeZone:    "UTC",
 		Description: "Test schedule",
+		Teams:       []TeamReferenceV3{{ID: "TEAM01", Type: "team_reference"}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -299,6 +319,7 @@ func TestScheduleV3_Create(t *testing.T) {
 		Name:        "On-Call Schedule",
 		TimeZone:    "UTC",
 		Description: "Test schedule",
+		Teams:       []TeamReferenceV3{{ID: "TEAM01", Type: "team_reference"}},
 	}
 	testEqual(t, want, res)
 }
@@ -351,6 +372,12 @@ func TestScheduleV3_Update(t *testing.T) {
 	mux.HandleFunc("/v3/schedules/"+testScheduleV3ID, func(w http.ResponseWriter, r *http.Request) {
 		testMethod(t, r, "PUT")
 		testV3EarlyAccessHeader(t, r)
+		// Verify teams are forwarded in the request payload.
+		var body updateScheduleV3Request
+		testBodyContains(t, r, &body)
+		if len(body.Schedule.Teams) != 1 || body.Schedule.Teams[0].ID != "TEAM01" {
+			t.Errorf("request teams = %v, want [{TEAM01 team_reference}]", body.Schedule.Teams)
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(mockScheduleV3MutateResponse))
 	})
@@ -360,6 +387,7 @@ func TestScheduleV3_Update(t *testing.T) {
 		Name:        "On-Call Schedule",
 		TimeZone:    "UTC",
 		Description: "Test schedule",
+		Teams:       []TeamReferenceV3{{ID: "TEAM01", Type: "team_reference"}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -371,6 +399,7 @@ func TestScheduleV3_Update(t *testing.T) {
 		Name:        "On-Call Schedule",
 		TimeZone:    "UTC",
 		Description: "Test schedule",
+		Teams:       []TeamReferenceV3{{ID: "TEAM01", Type: "team_reference"}},
 	}
 	testEqual(t, want, res)
 }
@@ -595,21 +624,31 @@ func TestEventV3_Create(t *testing.T) {
 	mux.HandleFunc("/v3/schedules/"+testScheduleV3ID+"/rotations/"+testRotationV3ID+"/events", func(w http.ResponseWriter, r *http.Request) {
 		testMethod(t, r, "POST")
 		testV3EarlyAccessHeader(t, r)
+		// Verify the request body is wrapped under "event" key.
+		var body struct {
+			Event EventV3 `json:"event"`
+		}
+		testBodyContains(t, r, &body)
+		if body.Event.Name != "On-Call Event" {
+			t.Errorf("request body event.name = %q, want %q", body.Event.Name, "On-Call Event")
+		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
 		_, _ = w.Write([]byte(mockEventV3Response))
 	})
 
+	shiftsPerMember := 1
 	userID := "USER01"
 	input := EventV3{
 		Name:           "On-Call Event",
-		StartTime:      EventTimeV3{DateTime: "2026-02-21T09:00:00Z"},
-		EndTime:        EventTimeV3{DateTime: "2026-02-21T17:00:00Z"},
+		StartTime:      EventTimeV3{DateTime: "2026-02-21T09:00:00Z", TimeZone: "America/New_York"},
+		EndTime:        EventTimeV3{DateTime: "2026-02-21T17:00:00Z", TimeZone: "America/New_York"},
 		EffectiveSince: "2026-02-21T09:00:00Z",
 		Recurrence:     []string{"RRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR"},
 		AssignmentStrategy: AssignmentStrategyV3{
-			Type:    "user_assignment_strategy",
-			Members: []MemberV3{{Type: "user_member", UserID: &userID}},
+			Type:            "rotating_member_assignment_strategy",
+			ShiftsPerMember: &shiftsPerMember,
+			Members:         []MemberV3{{Type: "user_member", UserID: &userID}},
 		},
 	}
 
@@ -623,14 +662,15 @@ func TestEventV3_Create(t *testing.T) {
 		ID:             testEventV3ID,
 		Type:           "schedule_event",
 		Name:           "On-Call Event",
-		StartTime:      EventTimeV3{DateTime: "2026-02-21T09:00:00Z"},
-		EndTime:        EventTimeV3{DateTime: "2026-02-21T17:00:00Z"},
+		StartTime:      EventTimeV3{DateTime: "2026-02-21T09:00:00Z", TimeZone: "America/New_York"},
+		EndTime:        EventTimeV3{DateTime: "2026-02-21T17:00:00Z", TimeZone: "America/New_York"},
 		EffectiveSince: "2026-02-21T09:00:00Z",
 		EffectiveUntil: nil,
 		Recurrence:     []string{"RRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR"},
 		AssignmentStrategy: AssignmentStrategyV3{
-			Type:    "user_assignment_strategy",
-			Members: []MemberV3{{Type: "user_member", UserID: &userID}},
+			Type:            "rotating_member_assignment_strategy",
+			ShiftsPerMember: &shiftsPerMember,
+			Members:         []MemberV3{{Type: "user_member", UserID: &userID}},
 		},
 	}
 	testEqual(t, want, res)
@@ -683,20 +723,30 @@ func TestEventV3_Update(t *testing.T) {
 	mux.HandleFunc("/v3/schedules/"+testScheduleV3ID+"/rotations/"+testRotationV3ID+"/events/"+testEventV3ID, func(w http.ResponseWriter, r *http.Request) {
 		testMethod(t, r, "PUT")
 		testV3EarlyAccessHeader(t, r)
+		// Verify the request body is wrapped under "event" key.
+		var body struct {
+			Event EventV3 `json:"event"`
+		}
+		testBodyContains(t, r, &body)
+		if body.Event.Name != "On-Call Event" {
+			t.Errorf("request body event.name = %q, want %q", body.Event.Name, "On-Call Event")
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(mockEventV3Response))
 	})
 
+	shiftsPerMember := 1
 	userID := "USER01"
 	input := EventV3{
 		Name:           "On-Call Event",
-		StartTime:      EventTimeV3{DateTime: "2026-02-21T09:00:00Z"},
-		EndTime:        EventTimeV3{DateTime: "2026-02-21T17:00:00Z"},
+		StartTime:      EventTimeV3{DateTime: "2026-02-21T09:00:00Z", TimeZone: "America/New_York"},
+		EndTime:        EventTimeV3{DateTime: "2026-02-21T17:00:00Z", TimeZone: "America/New_York"},
 		EffectiveSince: "2026-02-21T09:00:00Z",
 		Recurrence:     []string{"RRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR"},
 		AssignmentStrategy: AssignmentStrategyV3{
-			Type:    "user_assignment_strategy",
-			Members: []MemberV3{{Type: "user_member", UserID: &userID}},
+			Type:            "rotating_member_assignment_strategy",
+			ShiftsPerMember: &shiftsPerMember,
+			Members:         []MemberV3{{Type: "user_member", UserID: &userID}},
 		},
 	}
 
@@ -710,14 +760,15 @@ func TestEventV3_Update(t *testing.T) {
 		ID:             testEventV3ID,
 		Type:           "schedule_event",
 		Name:           "On-Call Event",
-		StartTime:      EventTimeV3{DateTime: "2026-02-21T09:00:00Z"},
-		EndTime:        EventTimeV3{DateTime: "2026-02-21T17:00:00Z"},
+		StartTime:      EventTimeV3{DateTime: "2026-02-21T09:00:00Z", TimeZone: "America/New_York"},
+		EndTime:        EventTimeV3{DateTime: "2026-02-21T17:00:00Z", TimeZone: "America/New_York"},
 		EffectiveSince: "2026-02-21T09:00:00Z",
 		EffectiveUntil: nil,
 		Recurrence:     []string{"RRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR"},
 		AssignmentStrategy: AssignmentStrategyV3{
-			Type:    "user_assignment_strategy",
-			Members: []MemberV3{{Type: "user_member", UserID: &userID}},
+			Type:            "rotating_member_assignment_strategy",
+			ShiftsPerMember: &shiftsPerMember,
+			Members:         []MemberV3{{Type: "user_member", UserID: &userID}},
 		},
 	}
 	testEqual(t, want, res)
@@ -776,6 +827,65 @@ func TestEventV3_Delete404Error(t *testing.T) {
 	client := defaultTestClient(server.URL, "foo")
 	err := client.DeleteEventV3(context.Background(), testScheduleV3ID, testRotationV3ID, testEventV3ID)
 	if !testErrCheck(t, "DeleteEventV3", "Not Found", err) {
+		return
+	}
+}
+
+// ---------------------------------------------------------------------------
+// GetEventV3
+// ---------------------------------------------------------------------------
+
+func TestEventV3_Get(t *testing.T) {
+	setup()
+	defer teardown()
+
+	mux.HandleFunc("/v3/schedules/"+testScheduleV3ID+"/rotations/"+testRotationV3ID+"/events/"+testEventV3ID, func(w http.ResponseWriter, r *http.Request) {
+		testMethod(t, r, "GET")
+		testV3EarlyAccessHeader(t, r)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(mockEventV3Response))
+	})
+
+	client := defaultTestClient(server.URL, "foo")
+	res, err := client.GetEventV3(context.Background(), testScheduleV3ID, testRotationV3ID, testEventV3ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	shiftsPerMember := 1
+	userID := "USER01"
+	want := &EventV3{
+		ID:             testEventV3ID,
+		Type:           "schedule_event",
+		Name:           "On-Call Event",
+		StartTime:      EventTimeV3{DateTime: "2026-02-21T09:00:00Z", TimeZone: "America/New_York"},
+		EndTime:        EventTimeV3{DateTime: "2026-02-21T17:00:00Z", TimeZone: "America/New_York"},
+		EffectiveSince: "2026-02-21T09:00:00Z",
+		EffectiveUntil: nil,
+		Recurrence:     []string{"RRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR"},
+		AssignmentStrategy: AssignmentStrategyV3{
+			Type:            "rotating_member_assignment_strategy",
+			ShiftsPerMember: &shiftsPerMember,
+			Members:         []MemberV3{{Type: "user_member", UserID: &userID}},
+		},
+	}
+	testEqual(t, want, res)
+}
+
+func TestEventV3_Get404Error(t *testing.T) {
+	setup()
+	defer teardown()
+
+	mux.HandleFunc("/v3/schedules/"+testScheduleV3ID+"/rotations/"+testRotationV3ID+"/events/"+testEventV3ID, func(w http.ResponseWriter, r *http.Request) {
+		testMethod(t, r, "GET")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(mockScheduleV3Error404))
+	})
+
+	client := defaultTestClient(server.URL, "foo")
+	_, err := client.GetEventV3(context.Background(), testScheduleV3ID, testRotationV3ID, testEventV3ID)
+	if !testErrCheck(t, "GetEventV3", "Not Found", err) {
 		return
 	}
 }
