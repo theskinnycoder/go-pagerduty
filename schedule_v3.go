@@ -4,32 +4,26 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"os"
 
 	"github.com/google/go-querystring/query"
 )
 
 // scheduleV3Headers returns the HTTP headers required by PagerDuty's v3 Schedules API.
-// The v3 API requires Accept: application/json and the flexible-schedules early access header.
-// The early access value can be overridden via PAGERDUTY_SCHEDULE_V3_EARLY_ACCESS env var.
 func scheduleV3Headers() map[string]string {
-	earlyAccessVal := "flexible-schedules-early-access"
-	if val := os.Getenv("PAGERDUTY_SCHEDULE_V3_EARLY_ACCESS"); val != "" {
-		earlyAccessVal = val
-	}
 	return map[string]string{
-		"Accept":         "application/json",
-		"X-Early-Access": earlyAccessVal,
+		"Accept": "application/json",
+		// The v3 API requires Accept: application/json and the flexible-schedules early access header.
+		"X-Early-Access": "flexible-schedules-early-access",
 	}
 }
 
 // ScheduleV3 represents a schedule in PagerDuty's v3 API.
 type ScheduleV3 struct {
-	ID                 string           `json:"id,omitempty"`
-	Type               string           `json:"type,omitempty"`
-	Name               string           `json:"name"`
-	TimeZone           string           `json:"time_zone"`
-	Description        string           `json:"description,omitempty"`
+	ID                 string            `json:"id,omitempty"`
+	Type               string            `json:"type,omitempty"`
+	Name               string            `json:"name"`
+	TimeZone           string            `json:"time_zone"`
+	Description        string            `json:"description,omitempty"`
 	EscalationPolicies []APIObject       `json:"escalation_policies,omitempty"`
 	Teams              []TeamReferenceV3 `json:"teams,omitempty"`
 	Users              []APIObject       `json:"users,omitempty"`
