@@ -888,3 +888,185 @@ func (c *Client) RemoveIncidentNotificationSubscribersWithContext(ctx context.Co
 
 	return &result, nil
 }
+
+// PastIncidentRecord represents a past incident entry with its similarity score.
+type PastIncidentRecord struct {
+	Incident APIObject `json:"incident,omitempty"`
+	Score    float64   `json:"score,omitempty"`
+}
+
+// ListPastIncidentsResponse is the response structure when calling the
+// GetPastIncidents API endpoint.
+type ListPastIncidentsResponse struct {
+	Limit         uint                 `json:"limit,omitempty"`
+	PastIncidents []PastIncidentRecord `json:"past_incidents,omitempty"`
+}
+
+// GetPastIncidents gets past incidents for the specified incident.
+//
+// Deprecated: Use GetPastIncidentsWithContext instead.
+func (c *Client) GetPastIncidents(id string) (*ListPastIncidentsResponse, error) {
+	return c.GetPastIncidentsWithContext(context.Background(), id)
+}
+
+// GetPastIncidentsWithContext gets past incidents for the specified incident.
+func (c *Client) GetPastIncidentsWithContext(ctx context.Context, id string) (*ListPastIncidentsResponse, error) {
+	resp, err := c.get(ctx, "/incidents/"+id+"/past_incidents", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result ListPastIncidentsResponse
+	if err = c.decodeJSON(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// RelatedIncidentRecord represents an incident related to the current incident.
+type RelatedIncidentRecord struct {
+	IncidentID     string         `json:"incident_id,omitempty"`
+	IncidentNumber uint           `json:"incident_number,omitempty"`
+	Title          string         `json:"title,omitempty"`
+	Description    string         `json:"description,omitempty"`
+	CreatedAt      string         `json:"created_at,omitempty"`
+	Status         string         `json:"status,omitempty"`
+	Urgency        string         `json:"urgency,omitempty"`
+	ServiceID      string         `json:"service_id,omitempty"`
+	ServiceName    string         `json:"service_name,omitempty"`
+	Relationships  []Relationship `json:"relationships,omitempty"`
+}
+
+// Relationship describes how two incidents are related.
+type Relationship struct {
+	Type    string `json:"type,omitempty"`
+	GroupID string `json:"group_id,omitempty"`
+}
+
+// ListRelatedIncidentsResponse is the response structure when calling the
+// GetRelatedIncidents API endpoint.
+type ListRelatedIncidentsResponse struct {
+	RelatedIncidents []RelatedIncidentRecord `json:"related_incidents,omitempty"`
+}
+
+// GetRelatedIncidents gets related incidents for the specified incident.
+//
+// Deprecated: Use GetRelatedIncidentsWithContext instead.
+func (c *Client) GetRelatedIncidents(id string) (*ListRelatedIncidentsResponse, error) {
+	return c.GetRelatedIncidentsWithContext(context.Background(), id)
+}
+
+// GetRelatedIncidentsWithContext gets related incidents for the specified incident.
+func (c *Client) GetRelatedIncidentsWithContext(ctx context.Context, id string) (*ListRelatedIncidentsResponse, error) {
+	resp, err := c.get(ctx, "/incidents/"+id+"/related_incidents", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result ListRelatedIncidentsResponse
+	if err = c.decodeJSON(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// OutlierOccurrence describes the frequency and category of an outlier incident.
+type OutlierOccurrence struct {
+	Count     uint    `json:"count,omitempty"`
+	Until     string  `json:"until,omitempty"`
+	Category  string  `json:"category,omitempty"`
+	Since     string  `json:"since,omitempty"`
+	Frequency float64 `json:"frequency,omitempty"`
+}
+
+// OutlierIncidentInfo represents an incident with its occurrence data.
+type OutlierIncidentInfo struct {
+	ID         string            `json:"id,omitempty"`
+	Self       string            `json:"self,omitempty"`
+	CreatedAt  string            `json:"created_at,omitempty"`
+	Occurrence OutlierOccurrence `json:"occurrence,omitempty"`
+}
+
+// OutlierIncidentTemplate represents the template for an outlier incident.
+type OutlierIncidentTemplate struct {
+	ID        string `json:"id,omitempty"`
+	MinedText string `json:"mined_text,omitempty"`
+	ClusterID string `json:"cluster_id,omitempty"`
+}
+
+// OutlierIncidentRecord represents an outlier incident.
+type OutlierIncidentRecord struct {
+	Incident         OutlierIncidentInfo     `json:"incident,omitempty"`
+	IncidentTemplate OutlierIncidentTemplate `json:"incident_template,omitempty"`
+}
+
+// GetOutlierIncidentResponse is the response structure when calling the
+// GetOutlierIncident API endpoint.
+type GetOutlierIncidentResponse struct {
+	OutlierIncident OutlierIncidentRecord `json:"outlier_incident,omitempty"`
+}
+
+// GetOutlierIncident gets outlier incident information for the specified incident.
+//
+// Deprecated: Use GetOutlierIncidentWithContext instead.
+func (c *Client) GetOutlierIncident(id string) (*GetOutlierIncidentResponse, error) {
+	return c.GetOutlierIncidentWithContext(context.Background(), id)
+}
+
+// GetOutlierIncidentWithContext gets outlier incident information for the specified incident.
+func (c *Client) GetOutlierIncidentWithContext(ctx context.Context, id string) (*GetOutlierIncidentResponse, error) {
+	resp, err := c.get(ctx, "/incidents/"+id+"/outlier_incident", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result GetOutlierIncidentResponse
+	if err = c.decodeJSON(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// IncidentChangeEvent represents a change event related to an incident.
+type IncidentChangeEvent struct {
+	ID                string                 `json:"id,omitempty"`
+	Source            string                 `json:"source,omitempty"`
+	Summary           string                 `json:"summary,omitempty"`
+	Timestamp         string                 `json:"timestamp,omitempty"`
+	Links             []ChangeEventLink      `json:"links,omitempty"`
+	Integration       APIObject              `json:"integration,omitempty"`
+	Services          []APIObject            `json:"services,omitempty"`
+	CustomDetails     map[string]interface{} `json:"custom_details,omitempty"`
+	CorrelationReason APIObject              `json:"correlation_reason,omitempty"`
+}
+
+// ListIncidentRelatedChangeEventsResponse is the response structure when calling
+// the ListIncidentRelatedChangeEvents API endpoint.
+type ListIncidentRelatedChangeEventsResponse struct {
+	ChangeEvents []IncidentChangeEvent `json:"change_events,omitempty"`
+}
+
+// ListIncidentRelatedChangeEvents lists change events related to the specified incident.
+//
+// Deprecated: Use ListIncidentRelatedChangeEventsWithContext instead.
+func (c *Client) ListIncidentRelatedChangeEvents(id string) (*ListIncidentRelatedChangeEventsResponse, error) {
+	return c.ListIncidentRelatedChangeEventsWithContext(context.Background(), id)
+}
+
+// ListIncidentRelatedChangeEventsWithContext lists change events related to the specified incident.
+func (c *Client) ListIncidentRelatedChangeEventsWithContext(ctx context.Context, id string) (*ListIncidentRelatedChangeEventsResponse, error) {
+	resp, err := c.get(ctx, "/incidents/"+id+"/related_change_events", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result ListIncidentRelatedChangeEventsResponse
+	if err = c.decodeJSON(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
