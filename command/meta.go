@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/mitchellh/go-homedir"
 	"github.com/PagerDuty/go-pagerduty"
+	"github.com/mitchellh/go-homedir"
 	log "github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v2"
 )
@@ -90,7 +90,7 @@ func (m *Meta) loadConfig() error {
 	if err != nil {
 		return err
 	}
-	configFile := filepath.Join(path, ".pd.yml")
+	configFile := filepath.Join(path, ".config", "pagerduty", "config.yml")
 	if _, err := os.Stat(configFile); err != nil {
 		return err
 	}
